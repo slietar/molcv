@@ -1,8 +1,8 @@
-use numpy::{ndarray::{Array2, Axis}, IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use std::error::Error;
 
 use ::molcv::Engine;
-use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
 
 /// Formats the sum of two numbers as string.
@@ -21,17 +21,15 @@ fn compute_cv<'py>(
         cutoffs: &[f32],
     ) -> Result<Bound<'py, PyArray2<f32>>, Box<dyn Error>> {
         let mut engine = Engine::new().await?;
-        engine.set_residues(residue_atom_counts, atoms_data, &..);
 
-        let mut output = Array2::<f32>::zeros((cutoffs.len(), residue_atom_counts.len()));
+        let result = engine.run(
+            residue_atom_counts,
+            atoms_data,
+            ..,
+            cutoffs,
+        ).await?;
 
-        for (cutoff_index, &cutoff) in cutoffs.iter().enumerate() {
-            let mut output_arr_slice = output.index_axis_mut(Axis(0), cutoff_index);
-            let output_slice = output_arr_slice.as_slice_mut().unwrap();
-            engine.run(cutoff, output_slice).await?;
-        }
-
-        Ok(output.into_pyarray_bound(m.py()))
+        Ok(result.into_pyarray_bound(m.py()))
     }
 
     match pollster::block_on(run(

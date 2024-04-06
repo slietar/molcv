@@ -5,8 +5,9 @@ struct Residue {
 
 struct Settings {
     atom_count: u32,
-    cutoff: f32,
+    residue_count: u32,
     residue_start: u32,
+    cutoffs: array<f32>,
 }
 
 
@@ -35,6 +36,7 @@ fn main(
     @builtin(local_invocation_id) local_id: vec3<u32>,
     @builtin(workgroup_id) workgroup_id: vec3<u32>,
 ) {
+    let cutoff = settings.cutoffs[global_id.y];
     let residue = residues[settings.residue_start + workgroup_id.x];
 
     if (local_id.x < residue.atom_count) {
@@ -48,7 +50,7 @@ fn main(
             let diff = other_atom - current_atom;
             let dist = length(diff);
 
-            if ((dist < settings.cutoff) && (dist > 0.0)) {
+            if ((dist < cutoff) && (dist > 0.0)) {
                 count += 1u;
                 vec_sum += diff / dist;
             }
@@ -66,6 +68,6 @@ fn main(
             sum += workgroup_cv[atom_index];
         }
 
-        output[workgroup_id.x] = sum / f32(residue.atom_count);
+        output[settings.residue_count * global_id.y + workgroup_id.x] = sum / f32(residue.atom_count);
     }
 }

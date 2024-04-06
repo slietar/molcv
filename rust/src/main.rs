@@ -2,7 +2,6 @@ use std::{collections::HashSet, error::Error};
 
 use clap::Parser;
 use molcv::Engine;
-use ndarray::Array;
 
 
 #[derive(Parser, Debug)]
@@ -21,7 +20,7 @@ struct Args {
 
     /// The path at which to save computed CV as a .npy file.
     #[arg(long)]
-    data_output_path: Option<String>,
+    npy_output_path: Option<String>,
 
     /// The cutoffs at which to compute the CV.
     #[arg(long)]
@@ -78,9 +77,12 @@ async fn run() -> Result<(), Box<dyn Error>> {
 
     let mut engine = Engine::new().await?;
 
-    engine.set_residues(&residue_atom_counts, &atoms_data, &..);
-
-    let result = engine.run_return(args.cutoff[0]).await?;
+    let result = engine.run(
+        &residue_atom_counts,
+        &atoms_data,
+        ..,
+        &args.cutoff
+    ).await?;
 
     if let Some(pdb_output_path) = &args.pdb_output_path {
         if args.cutoff.len() != 1 {
@@ -94,7 +96,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
 
             for residue in chain.residues_mut() {
                 let b_factor = if chain_visible {
-                    let cv = result[residue_index] as f64;
+                    let cv = result[[0, residue_index]];
                     residue_index += 1;
 
                     cv
@@ -103,7 +105,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 };
 
                 for atom in residue.atoms_mut() {
-                    atom.set_b_factor(b_factor)?;
+                    atom.set_b_factor(b_factor.into())?;
                 }
             }
         }
@@ -112,13 +114,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             .map_err(|errors| format!("Failed to save PDB: {:?}", errors))?;
     }
 
-    if let Some(data_output_path) = &args.data_output_path {
-        let data = Array::from_shape_vec(
-            (structure.residues().count(), 1),
-            result
-        )?;
-
-        ndarray_npy::write_npy(data_output_path, &data)?;
+    if let Some(data_output_path) = &args.npy_output_path {
+        ndarray_npy::write_npy(data_output_path, &result)?;
     }
 
     Ok(())

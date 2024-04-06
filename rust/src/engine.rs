@@ -1,4 +1,5 @@
 use std::{error::Error, ops::{Bound, RangeBounds}};
+use ndarray::Array2;
 
 
 static SHADER_CODE: &'static str = include_str!("./shader.wgsl");
@@ -38,13 +39,6 @@ fn write_buffer(device: &wgpu::Device, queue: &wgpu::Queue, buffer_source: &mut 
 
     if let BufferInfo::Data(data) = info {
         queue.write_buffer(&buffer, 0, data);
-
-        // {
-        //     let mut buffer_mut = buffer.slice(..).get_mapped_range_mut();
-        //     buffer_mut[..data.len()].copy_from_slice(data);
-        // }
-
-        // buffer.unmap();
     }
 
 }
@@ -58,15 +52,11 @@ pub struct Engine {
     pipeline: wgpu::ComputePipeline,
     queue: wgpu::Queue,
 
-    atom_count: Option<usize>,
-    residue_count: Option<usize>,
-    target_residue_range: Option<(usize, usize)>,
-
     atoms_buffer: Option<wgpu::Buffer>,
     output_buffer: Option<wgpu::Buffer>,
     read_buffer: Option<wgpu::Buffer>,
     residues_buffer: Option<wgpu::Buffer>,
-    settings_buffer: wgpu::Buffer,
+    settings_buffer: Option<wgpu::Buffer>,
 }
 
 impl Engine {
@@ -113,34 +103,32 @@ impl Engine {
 
         // Create buffers
 
-        let settings_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Settings buffer"),
-            mapped_at_creation: false,
-            size: 12,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
         Ok(Self {
             bind_group_layout,
             device,
             pipeline,
             queue,
 
-            atom_count: None,
-            residue_count: None,
-            target_residue_range: None,
-
-            read_buffer: None,
-            output_buffer: None,
-            settings_buffer,
             atoms_buffer: None,
+            output_buffer: None,
+            read_buffer: None,
             residues_buffer: None,
+            settings_buffer: None,
         })
     }
 
-    pub fn set_residues<R: RangeBounds<usize>>(&mut self, residue_atom_counts: &[u32], atoms_data: &[f32], target_residue_range: &R) {
+    pub async fn run<R: RangeBounds<usize>>(
+        &mut self,
+        residue_atom_counts: &[u32],
+        atoms_data: &[f32],
+        target_residue_range: R,
+        cutoff_distances: &[f32],
+    ) -> Result<Array2<f32>, Box<dyn Error>> {
         let atom_count = atoms_data.len() / 4;
         let residue_count = residue_atom_counts.len();
+
+
+        // Calculate target range
 
         let target_residue_start = match target_residue_range.start_bound() {
             Bound::Excluded(&x) => x + 1,
@@ -156,49 +144,43 @@ impl Engine {
 
         let target_residue_count = target_residue_end - target_residue_start;
 
-        self.atom_count = Some(atom_count);
-        self.residue_count = Some(residue_count);
-        self.target_residue_range = Some((target_residue_start, target_residue_end));
+        if cutoff_distances.is_empty() {
+            return Ok(Array2::zeros((0, target_residue_count)));
+        }
 
 
-        // let mut atoms_data = vec![0f32; atom_count * 4];
-        let mut residues_data = vec![0u32; residue_count * 2];
+        // Prepare residues data
 
         let mut current_atom_offset = 0;
+        let mut residues_data = vec![0u32; residue_count * 2];
 
         for (residue_index, &residue_atom_count) in residue_atom_counts.iter().enumerate() {
             residues_data[residue_index * 2 + 0] = residue_atom_count as u32;
             residues_data[residue_index * 2 + 1] = current_atom_offset as u32;
 
             current_atom_offset += residue_atom_count;
-
-            // for atom in 0..residue_atom_count {
-            //     atoms_data[current_atom_offset * 4 + 0] = atom.x() as f32;
-            //     atoms_data[current_atom_offset * 4 + 1] = atom.y() as f32;
-            //     atoms_data[current_atom_offset * 4 + 2] = atom.z() as f32;
-            //     current_atom_offset += 1;
-            // }
         }
+
+
+        // Prepare settings data
+
+        let settings_data = [
+            &(atom_count as u32).to_le_bytes()[..],
+            &(target_residue_count as u32).to_le_bytes()[..],
+            &(target_residue_start as u32).to_le_bytes()[..],
+            bytemuck::cast_slice(&cutoff_distances),
+        ].concat();
+
+
+        // Write buffers
+
+        let output_buffer_size = target_residue_count * cutoff_distances.len() * 4;
 
         write_buffer(&self.device, &self.queue, &mut self.atoms_buffer, BufferInfo::Data(bytemuck::cast_slice(&atoms_data)), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
         write_buffer(&self.device, &self.queue, &mut self.residues_buffer, BufferInfo::Data(bytemuck::cast_slice(&residues_data)), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
-        write_buffer(&self.device, &self.queue, &mut self.output_buffer, BufferInfo::Size(target_residue_count * 4), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
-        write_buffer(&self.device, &self.queue, &mut self.read_buffer, BufferInfo::Size(target_residue_count * 4), wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST);
-    }
-
-    pub async fn run(&mut self, cutoff_distance: f32, output: &mut [f32]) -> Result<(), Box<dyn Error>> {
-        // Write settings
-
-        let (target_residue_start, target_residue_end) = self.target_residue_range.unwrap();
-        let target_residue_count = target_residue_end - target_residue_start;
-
-        let settings_data = [
-            &(self.atom_count.unwrap() as u32).to_le_bytes()[..],
-            &cutoff_distance.to_le_bytes(),
-            &(target_residue_start as u32).to_le_bytes()[..]
-        ].concat();
-
-        self.queue.write_buffer(&self.settings_buffer, 0, &settings_data);
+        write_buffer(&self.device, &self.queue, &mut self.output_buffer, BufferInfo::Size(output_buffer_size), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
+        write_buffer(&self.device, &self.queue, &mut self.read_buffer, BufferInfo::Size(output_buffer_size), wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST);
+        write_buffer(&self.device, &self.queue, &mut self.settings_buffer, BufferInfo::Data(&settings_data), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
 
 
         // Create bind group
@@ -217,7 +199,7 @@ impl Engine {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: self.settings_buffer.as_entire_binding(),
+                    resource: self.settings_buffer.as_ref().unwrap().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -241,8 +223,8 @@ impl Engine {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(
                 (target_residue_end - target_residue_start) as u32,
+                cutoff_distances.len() as u32,
                 1,
-                1
             );
         }
 
@@ -253,7 +235,7 @@ impl Engine {
         // queue.write_buffer(&settings_buffer, 4, bytemuck::cast_slice(&[current_y as u32]));
         self.queue.submit(Some(encoder.finish()));
 
-        let buffer_slice = read_buffer.slice(..((target_residue_count * 4) as u64));
+        let buffer_slice = read_buffer.slice(..(output_buffer_size as u64));
         let (sender, receiver) = flume::bounded(1);
 
         buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
@@ -263,25 +245,20 @@ impl Engine {
             let data = buffer_slice.get_mapped_range();
             let cast_data = bytemuck::cast_slice::<u8, f32>(&data);
 
-            output.copy_from_slice(cast_data);
+            let output = ndarray::Array::from_shape_vec(
+                (
+                    cutoff_distances.len(),
+                    target_residue_count,
+                ),
+                cast_data.to_vec(),
+            )?;
 
             drop(data);
-
             read_buffer.unmap();
 
-            Ok(())
+            Ok(output)
         } else {
             Err("Failed to run compute on gpu!")?
         }
-    }
-
-    pub async fn run_return(&mut self, cutoff_distance: f32) -> Result<Vec<f32>, Box<dyn Error>> {
-        let (target_residue_start, target_residue_end) = self.target_residue_range.unwrap();
-        let target_residue_count = target_residue_end - target_residue_start;
-
-        let mut output = vec![0f32; target_residue_count];
-        self.run(cutoff_distance, &mut output).await?;
-
-        Ok(output)
     }
 }
