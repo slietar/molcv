@@ -1,5 +1,4 @@
 use std::{error::Error, ops::{Bound, RangeBounds}};
-use pdbtbx::Residue;
 
 
 static SHADER_CODE: &'static str = include_str!("./shader.wgsl");
@@ -187,7 +186,7 @@ impl Engine {
         write_buffer(&self.device, &self.queue, &mut self.read_buffer, BufferInfo::Size(target_residue_count * 4), wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST);
     }
 
-    pub async fn run(&mut self, cutoff_distance: f32) -> Result<Vec<f32>, Box<dyn Error>> {
+    pub async fn run(&mut self, cutoff_distance: f32, output: &mut [f32]) -> Result<(), Box<dyn Error>> {
         // Write settings
 
         let (target_residue_start, target_residue_end) = self.target_residue_range.unwrap();
@@ -264,14 +263,25 @@ impl Engine {
             let data = buffer_slice.get_mapped_range();
             let cast_data = bytemuck::cast_slice::<u8, f32>(&data);
 
-            let result = cast_data.to_vec();
+            output.copy_from_slice(cast_data);
+
             drop(data);
 
             read_buffer.unmap();
 
-            Ok(result)
+            Ok(())
         } else {
             Err("Failed to run compute on gpu!")?
         }
+    }
+
+    pub async fn run_return(&mut self, cutoff_distance: f32) -> Result<Vec<f32>, Box<dyn Error>> {
+        let (target_residue_start, target_residue_end) = self.target_residue_range.unwrap();
+        let target_residue_count = target_residue_end - target_residue_start;
+
+        let mut output = vec![0f32; target_residue_count];
+        self.run(cutoff_distance, &mut output).await?;
+
+        Ok(output)
     }
 }

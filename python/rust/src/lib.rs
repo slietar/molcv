@@ -1,4 +1,4 @@
-use numpy::{ndarray::{Array2, ArrayView1, Axis}, IntoPyArray, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{ndarray::{Array2, Axis}, IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use std::error::Error;
 
 use ::molcv::Engine;
@@ -23,15 +23,12 @@ fn compute_cv<'py>(
         let mut engine = Engine::new().await?;
         engine.set_residues(residue_atom_counts, atoms_data, &..);
 
-        let mut output = Array2::<f32>::zeros((residue_atom_counts.len(), cutoffs.len()));
+        let mut output = Array2::<f32>::zeros((cutoffs.len(), residue_atom_counts.len()));
 
         for (cutoff_index, &cutoff) in cutoffs.iter().enumerate() {
-            let cutoff_output_vec = engine.run(cutoff).await?;
-            let cutoff_output_arr = ArrayView1::from(&cutoff_output_vec);
-
-            let mut output_slice = output.index_axis_mut(Axis(1), cutoff_index);
-            // let x = output_slice.as_slice_mut().unwrap();
-            output_slice.assign(&cutoff_output_arr);
+            let mut output_arr_slice = output.index_axis_mut(Axis(0), cutoff_index);
+            let output_slice = output_arr_slice.as_slice_mut().unwrap();
+            engine.run(cutoff, output_slice).await?;
         }
 
         Ok(output.into_pyarray_bound(m.py()))
@@ -48,7 +45,6 @@ fn compute_cv<'py>(
     }
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn _molcv(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_cv, m)?)?;

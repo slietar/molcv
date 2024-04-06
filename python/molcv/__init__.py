@@ -4,7 +4,7 @@ import numpy as np
 from . import _molcv
 
 
-def compute_cv(residue_atom_counts: Sequence[int] | np.ndarray, atom_positions: Sequence[Sequence[float]] | np.ndarray, *, cutoffs: Sequence[float]):
+def compute_cv(residue_atom_counts: Sequence[int] | np.ndarray, atom_positions: Sequence[Sequence[float]] | np.ndarray, *, cutoffs: Sequence[float] | np.ndarray):
   atom_positions_ = np.asarray(atom_positions, dtype=np.float32)
   cutoffs_ = np.ascontiguousarray(cutoffs, dtype=np.float32)
   residue_atom_counts_ = np.ascontiguousarray(residue_atom_counts, dtype=np.uint32)
