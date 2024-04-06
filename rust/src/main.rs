@@ -1,12 +1,17 @@
-use std::error::Error;
-use clap::Parser;
+use std::{collections::HashSet, error::Error};
 
+use clap::Parser;
 use molcv::Engine;
+use ndarray::Array;
 
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// The chain to use for computing CV. If empty, all chains are used.
+    #[arg(long)]
+    chain: Vec<String>,
+
     /// The path to the input .pdb file.
     pdb_input_path: String,
 
@@ -30,13 +35,39 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let (mut structure, _) = pdbtbx::open(&args.pdb_input_path, pdbtbx::StrictnessLevel::Loose)
         .map_err(|errors| format!("Failed to open PDB: {:?}", errors))?;
 
-    let residue_atom_counts = structure
-        .residues()
-        .map(|residue| residue.atoms().count() as u32)
+    let chain_ids = if args.chain.is_empty() {
+        None
+    } else {
+        let structure_chain_ids = structure.chains().map(|chain| chain.id()).collect::<HashSet<_>>();
+
+        for chain_id in &args.chain {
+            if !structure_chain_ids.contains(chain_id.as_str()) {
+                return Err(format!("Chain {} not found", chain_id).into());
+            }
+        }
+
+        Some(HashSet::<String>::from_iter(args.chain))
+    };
+
+    let is_chain_visible = |chain_id: &str| match &chain_ids {
+        Some(chain_ids) => chain_ids.contains(chain_id),
+        None => true,
+    };
+
+    let residues = structure
+        .chains()
+        .filter(|&chain| is_chain_visible(chain.id()))
+        .flat_map(|chain| chain.residues())
         .collect::<Vec<_>>();
 
-    let atoms_data = structure
-        .atoms()
+    let residue_atom_counts = residues
+        .iter()
+        .map(|&residue| residue.atoms().count() as u32)
+        .collect::<Vec<_>>();
+
+    let atoms_data = residues
+        .iter()
+        .flat_map(|&residue| residue.atoms())
         .flat_map(|atom| [
             atom.x() as f32,
             atom.y() as f32,
@@ -56,9 +87,24 @@ async fn run() -> Result<(), Box<dyn Error>> {
             return Err("Only one cutoff is supported when saving as a PDB file".into());
         }
 
-        for (residue_index, residue) in structure.residues_mut().enumerate() {
-            for atom in residue.atoms_mut() {
-                atom.set_b_factor(result[residue_index] as f64)?;
+        let mut residue_index = 0;
+
+        for chain in structure.chains_mut() {
+            let chain_visible = is_chain_visible(chain.id());
+
+            for residue in chain.residues_mut() {
+                let b_factor = if chain_visible {
+                    let cv = result[residue_index] as f64;
+                    residue_index += 1;
+
+                    cv
+                } else {
+                    0.0
+                };
+
+                for atom in residue.atoms_mut() {
+                    atom.set_b_factor(b_factor)?;
+                }
             }
         }
 
@@ -66,12 +112,21 @@ async fn run() -> Result<(), Box<dyn Error>> {
             .map_err(|errors| format!("Failed to save PDB: {:?}", errors))?;
     }
 
+    if let Some(data_output_path) = &args.data_output_path {
+        let data = Array::from_shape_vec(
+            (structure.residues().count(), 1),
+            result
+        )?;
+
+        ndarray_npy::write_npy(data_output_path, &data)?;
+    }
+
     Ok(())
 }
 
 fn main() {
     if let Err(err) = pollster::block_on(run()) {
-        eprintln!("{}", err);
+        eprintln!("Error: {}", err);
         std::process::exit(1);
     }
 }
