@@ -1,185 +1,77 @@
-use std::{error::Error, fs::File, ops::RangeBounds as _, path::Path};
-use serde::Serialize;
-use serde_pickle::SerOptions;
+use std::error::Error;
+use clap::Parser;
 
 use molcv::Engine;
 
 
-// async fn run_one() -> Result<(), Box<dyn Error>> {
-//     let mut engine = Engine::new().await?;
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The path to the input .pdb file.
+    pdb_input_path: String,
 
-//     for filename in &[
-//         // "2h1l.pdb",
-//         // "5j7o.pdb",
-//         "../drive/FBN1_AlphaFold.pdb"
-//     ] {
-//         let path = Path::new(filename);
+    /// The path at which to save computed CV as the B factor of a .pdb file.
+    #[arg(long)]
+    pdb_output_path: Option<String>,
 
-//         let output_dir_path = format!("output/{}", path.file_stem().unwrap().to_str().unwrap());
-//         std::fs::create_dir_all(&output_dir_path)?;
+    /// The path at which to save computed CV as a .npy file.
+    #[arg(long)]
+    data_output_path: Option<String>,
 
-//         let (mut structure, _) = pdbtbx::open(filename, pdbtbx::StrictnessLevel::Loose)
-//             .map_err(|e| format!("Failed to open PDB: {:?}", e))?;
-
-//         let residues = structure.residues().collect::<Vec<_>>();
-//         let residue_range = ..;
-
-//         engine.set_residues(&residues, &residue_range);
-
-//         for &cutoff in &[
-//             10.0,
-//             20.0,
-//             30.0,
-//             40.0,
-//             50.0,
-//             60.0,
-//             70.0,
-//             80.0,
-//             90.0,
-//             100.0,
-//         ] {
-//             eprintln!("Processing {} with cutoff {} Å", filename, cutoff);
-
-//             let cv = engine.run(cutoff).await?;
-
-//             let mut current_relative_residue_index = 0usize;
-
-//             for (residue_index, residue) in structure.residues_mut().enumerate() {
-//                 let b_factor = if residue_range.contains(&residue_index) {
-//                     current_relative_residue_index += 1;
-//                     cv[current_relative_residue_index - 1]
-//                 } else {
-//                     0.0
-//                 };
-
-//                 for atom in residue.atoms_mut() {
-//                     atom.set_b_factor(b_factor as f64)?;
-//                 }
-//             }
-
-//             pdbtbx::save(&structure, &format!("{}/{:03}.pdb", output_dir_path, cutoff as u32), pdbtbx::StrictnessLevel::Medium)
-//                 .map_err(|e| format!("Failed to save PDB: {:?}", e))?;
-//         }
-//     }
-
-//     Ok(())
-// }
-
-
-#[derive(Debug, Serialize)]
-struct Output {
-    cutoffs: Vec<f64>,
-    data: Vec<Vec<Vec<f32>>>,
+    /// The cutoffs at which to compute the CV.
+    #[arg(long)]
+    cutoff: Vec<f32>,
 }
 
 
-// async fn run() -> Result<(), Box<dyn Error>> {
-//     // run_one().await?;
-//     // return Ok(());
+async fn run() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
 
+    let (mut structure, _) = pdbtbx::open(&args.pdb_input_path, pdbtbx::StrictnessLevel::Loose)
+        .map_err(|errors| format!("Failed to open PDB: {:?}", errors))?;
 
-//     let data = project_preprocessing::deserialize("../structure/output/data.pkl")?;
+    let residue_atom_counts = structure
+        .residues()
+        .map(|residue| residue.atoms().count() as u32)
+        .collect::<Vec<_>>();
 
-//     let cutoffs = [
-//         10.0,
-//         20.0,
-//         30.0,
-//         40.0,
-//         50.0,
-//         60.0,
-//         70.0,
-//         80.0,
-//         90.0,
-//         100.0,
-//     ];
+    let atoms_data = structure
+        .atoms()
+        .flat_map(|atom| [
+            atom.x() as f32,
+            atom.y() as f32,
+            atom.z() as f32,
+            0.0
+        ])
+        .collect::<Vec<_>>();
 
-//     let mut engine = Engine::new().await?;
-//     let mut cv_all = Vec::with_capacity(data.domains.len());
+    let mut engine = Engine::new().await?;
 
-//     for (domain_index, domain) in data.domains.iter().enumerate() {
-//         eprintln!("Processing {:?} {}", domain.kind, domain.number);
+    engine.set_residues(&residue_atom_counts, &atoms_data, &..);
 
-//         let (mut structure, _) = pdbtbx::open(&format!("../output/structures/alphafold-contextualized/{:04}.pdb", domain_index), pdbtbx::StrictnessLevel::Loose)
-//             .map_err(|e| format!("Failed to open PDB: {:?}", e))?;
+    let result = engine.run_return(args.cutoff[0]).await?;
 
-//         let residues = structure.residues().collect::<Vec<_>>();
+    if let Some(pdb_output_path) = &args.pdb_output_path {
+        if args.cutoff.len() != 1 {
+            return Err("Only one cutoff is supported when saving as a PDB file".into());
+        }
 
-//         let mut cv_domain = Vec::with_capacity(cutoffs.len());
+        for (residue_index, residue) in structure.residues_mut().enumerate() {
+            for atom in residue.atoms_mut() {
+                atom.set_b_factor(result[residue_index] as f64)?;
+            }
+        }
 
-//         let residue_start = domain.start_position - (if domain_index > 0 { data.domains[domain_index - 1].start_position } else { 1 });
-//         let residue_end = residue_start + (domain.end_position - domain.start_position + 1);
+        pdbtbx::save(&structure, pdb_output_path, pdbtbx::StrictnessLevel::Medium)
+            .map_err(|errors| format!("Failed to save PDB: {:?}", errors))?;
+    }
 
-//         let residue_range = residue_start..residue_end;
-
-//         // eprintln!("{:?}", &residue_range);
-//         // eprintln!("{:?}", &domain);
-//         // eprintln!("{}", structure.residue_count());
-
-//         engine.set_residues(&residues, &residue_range);
-
-//         let output_dir_path = if domain_index < 5 {
-//             let path = format!("output/domains/{:04}", domain_index);
-//             std::fs::create_dir_all(&path)?;
-//             Some(path)
-//         } else {
-//             None
-//         };
-
-//         for &cutoff in &cutoffs {
-//             // eprintln!("Processing {:?} {} with cutoff {} Å", domain.kind, domain.number, cutoff);
-
-//             let cv = engine.run(cutoff).await?;
-
-
-//             if let Some(output_dir_path) = &output_dir_path {
-//                 let mut current_relative_residue_index = 0usize;
-
-//                 for (residue_index, residue) in structure.residues_mut().enumerate() {
-//                     let b_factor = if residue_range.contains(&residue_index) {
-//                         current_relative_residue_index += 1;
-//                         cv[current_relative_residue_index - 1]
-//                     } else {
-//                         0.0
-//                     };
-
-//                     for atom in residue.atoms_mut() {
-//                         atom.set_b_factor(b_factor as f64)?;
-//                     }
-//                 }
-
-//                 pdbtbx::save(&structure, &format!("{}/{:03}.pdb", output_dir_path, cutoff as u32), pdbtbx::StrictnessLevel::Medium)
-//                     .map_err(|e| format!("Failed to save PDB: {:?}", e))?;
-//             }
-
-
-//             cv_domain.push(cv);
-//         }
-
-//         if let Some(output_dir_path) = output_dir_path {
-//             let mut script = String::new();
-
-//             for cutoff in cutoffs {
-//                 script += &format!("load {}/{:03}.pdb, C{:03}\n", output_dir_path, cutoff as u32, cutoff as u32);
-//             }
-
-//             script += "spectrum b\n";
-
-//             std::fs::write(&format!("{}/script.pml", output_dir_path), script)?;
-//         }
-
-//         cv_all.push(cv_domain);
-//     }
-
-//     let mut writer = File::create("../output/cv.pkl")?;
-
-//     serde_pickle::to_writer(&mut writer, &Output {
-//         cutoffs: cutoffs.to_vec(),
-//         data: cv_all,
-//     }, SerOptions::new())?;
-
-//     Ok(())
-// }
+    Ok(())
+}
 
 fn main() {
-    // pollster::block_on(run()).unwrap();
+    if let Err(err) = pollster::block_on(run()) {
+        eprintln!("{}", err);
+        std::process::exit(1);
+    }
 }
