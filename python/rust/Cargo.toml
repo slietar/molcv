@@ -1,0 +1,14 @@
+[package]
+name = "molcvp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "molcv"
+crate-type = ["cdylib"]
+
+[dependencies]
+molcv = { path = "../../rust" }
+numpy = "0.21.0"
+pollster = "0.3.0"
+pyo3 = "0.21.0"

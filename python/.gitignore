@@ -1,0 +1,6 @@
+__pycache__
+*.egg-info
+*.so
+/env
+/rust/Cargo.lock
+/rust/target

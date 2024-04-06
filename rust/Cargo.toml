@@ -1,0 +1,14 @@
+[package]
+name = "molcv"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytemuck = "1.15.0"
+flume = "0.11.0"
+pdbtbx = "0.11.0"
+pollster = "0.3.0"
+# project-preprocessing = { path = "../structure" }
+serde = { version = "1.0.196", features = ["std", "derive"] }
+serde-pickle = "1.1.1"
+wgpu = "0.19.3"
