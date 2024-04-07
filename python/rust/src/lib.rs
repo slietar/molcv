@@ -2,10 +2,12 @@ use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use std::error::Error;
 
-use ::molcv::Engine;
 
+#[pyfunction]
+fn cli(args: Vec<String>) {
+    molcv::cli(&args);
+}
 
-/// Formats the sum of two numbers as string.
 #[pyfunction]
 #[pyo3(pass_module)]
 fn compute_cv<'py>(
@@ -20,7 +22,7 @@ fn compute_cv<'py>(
         atoms_data: &[f32],
         cutoffs: &[f32],
     ) -> Result<Bound<'py, PyArray2<f32>>, Box<dyn Error>> {
-        let mut engine = Engine::new().await?;
+        let mut engine = molcv::Engine::new().await?;
 
         let result = engine.run(
             residue_atom_counts,
@@ -45,6 +47,7 @@ fn compute_cv<'py>(
 
 #[pymodule]
 fn _molcv(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(cli, m)?)?;
     m.add_function(wrap_pyfunction!(compute_cv, m)?)?;
     Ok(())
 }

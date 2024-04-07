@@ -12,6 +12,9 @@ classifiers = [
 ]
 dynamic = ["version"]
 
+[project.scripts]
+molcv = "molcv:cli"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "molcv._molcv"

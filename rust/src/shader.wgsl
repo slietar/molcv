@@ -56,7 +56,11 @@ fn main(
             }
         }
 
-        workgroup_cv[local_id.x] = 1.0 - length(vec_sum) / f32(count);
+        if (count > 0u) {
+            workgroup_cv[local_id.x] = 1.0 - length(vec_sum) / f32(count);
+        } else {
+            workgroup_cv[local_id.x] = 1.0;
+        }
     }
 
     workgroupBarrier();

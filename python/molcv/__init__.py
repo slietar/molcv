@@ -1,12 +1,52 @@
-from typing import Sequence
+import sys
+from typing import Optional, Sequence, overload
+
 import numpy as np
 
 from . import _molcv
 
 
-def compute_cv(residue_atom_counts: Sequence[int] | np.ndarray, atom_positions: Sequence[Sequence[float]] | np.ndarray, *, cutoffs: Sequence[float] | np.ndarray):
+def cli():
+  _molcv.cli(sys.argv)
+
+
+@overload
+def compute_cv(
+  residue_atom_counts: Sequence[int] | np.ndarray,
+  atom_positions: Sequence[Sequence[float]] | np.ndarray,
+  *,
+  cutoff: float
+) -> np.ndarray:
+  ...
+
+@overload
+def compute_cv(
+  residue_atom_counts: Sequence[int] | np.ndarray,
+  atom_positions: Sequence[Sequence[float]] | np.ndarray,
+  *,
+  cutoffs: Sequence[float] | np.ndarray
+) -> np.ndarray:
+  ...
+
+def compute_cv(
+    residue_atom_counts: Sequence[int] | np.ndarray,
+    atom_positions: Sequence[Sequence[float]] | np.ndarray,
+    *,
+    cutoff: Optional[float] = None,
+    cutoffs: Optional[Sequence[float] | np.ndarray] = None
+  ):
+
+  match (cutoff, cutoffs):
+    case (None, None):
+      raise ValueError('Either "cutoff" or "cutoffs" must be provided')
+    case (None, _):
+      cutoffs_ = np.ascontiguousarray(cutoffs, dtype=np.float32)
+    case (_, None):
+      cutoffs_ = np.array([cutoff], dtype=np.float32)
+    case (_, _):
+      raise ValueError('Only one of "cutoff" or "cutoffs" can be provided')
+
   atom_positions_ = np.asarray(atom_positions, dtype=np.float32)
-  cutoffs_ = np.ascontiguousarray(cutoffs, dtype=np.float32)
   residue_atom_counts_ = np.ascontiguousarray(residue_atom_counts, dtype=np.uint32)
 
   if atom_positions_.ndim != 2:
@@ -24,8 +64,14 @@ def compute_cv(residue_atom_counts: Sequence[int] | np.ndarray, atom_positions: 
   if cutoffs_.ndim != 1:
     raise ValueError('Cutoffs must be a 1D array')
 
-  # print(bytes(memoryview(atoms.astype(np.uint8))))
-
   atom_positions_ = np.ascontiguousarray(atom_positions_)
 
-  return _molcv.compute_cv(residue_atom_counts_, atom_positions_, cutoffs_)
+  result = _molcv.compute_cv(residue_atom_counts_, atom_positions_, cutoffs_)
+
+  return result[0, :] if cutoff is not None else result
+
+
+__all__ = [
+  'cli',
+  'compute_cv'
+]
