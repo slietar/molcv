@@ -2,7 +2,7 @@
 
 This repository contains a Python package and a Rust crate for calculating the circular variance of protein residues.
 
-The following is an example output for the [2H1L sturcture](https://www.rcsb.org/structure/2h1l), where red corresponds to a circular variance of 1 and dark blue to 0.
+The following is an example output for the [2H1L structure](https://www.rcsb.org/structure/2h1l), where red corresponds to a circular variance of 1 and dark blue to 0.
 
 <div style="display: flex; justify-content: center;">
   <img src="example.png" style="max-width: 400px;" />
