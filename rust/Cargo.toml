@@ -1,6 +1,6 @@
 [package]
 name = "molcv"
-version = "0.0.0"
+version = "0.1.0"
 description = "Crate that calculates the circular variance of protein residues"
 edition = "2021"
 license = "EUPL-1.2"
