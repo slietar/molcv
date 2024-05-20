@@ -1,5 +1,5 @@
 import sys
-from typing import Optional, Sequence, overload
+from typing import Iterable, Optional, overload
 
 import numpy as np
 
@@ -12,8 +12,8 @@ def cli():
 
 @overload
 def compute_cv(
-  residue_atom_counts: Sequence[int] | np.ndarray,
-  atom_positions: Sequence[Sequence[float]] | np.ndarray,
+  residue_atom_counts: Iterable[int],
+  atom_positions: Iterable[Iterable[float]],
   *,
   cutoff: float
 ) -> np.ndarray:
@@ -21,20 +21,31 @@ def compute_cv(
 
 @overload
 def compute_cv(
-  residue_atom_counts: Sequence[int] | np.ndarray,
-  atom_positions: Sequence[Sequence[float]] | np.ndarray,
+  residue_atom_counts: Iterable[int],
+  atom_positions: Iterable[Iterable[float]],
   *,
-  cutoffs: Sequence[float] | np.ndarray
+  cutoffs: Iterable[float]
 ) -> np.ndarray:
   ...
 
 def compute_cv(
-    residue_atom_counts: Sequence[int] | np.ndarray,
-    atom_positions: Sequence[Sequence[float]] | np.ndarray,
+    residue_atom_counts: Iterable[int],
+    atom_positions: Iterable[Iterable[float]],
     *,
     cutoff: Optional[float] = None,
-    cutoffs: Optional[Sequence[float] | np.ndarray] = None
+    cutoffs: Optional[Iterable[float]] = None
   ):
+  """
+  Calculate the circular variance of protein residues.
+
+  Parameters
+    atom_positions: The positions of the N atoms of the protein, as an array with shape (N, 3) or (N, 4) (in which case the fourth coordinate is unused).
+    cutoff/cutoffs: The M cutoff distance(s) for the calculation.
+    residue_atom_counts: The number of atoms in each of the P residues.
+
+  Returns
+    The circular variance of each residue as an array with shape (M, P), or (P) if `cutoff` was used.
+  """
 
   match (cutoff, cutoffs):
     case (None, None):

@@ -10,8 +10,6 @@ enum BufferInfo<'a> {
 }
 
 fn write_buffer(device: &wgpu::Device, queue: &wgpu::Queue, buffer_source: &mut Option<wgpu::Buffer>, info: BufferInfo, usage: wgpu::BufferUsages) {
-    // *buffer_source = None;
-
     let size = match info {
         BufferInfo::Data(data) => data.len(),
         BufferInfo::Size(size) => size,
@@ -20,14 +18,9 @@ fn write_buffer(device: &wgpu::Device, queue: &wgpu::Queue, buffer_source: &mut 
     let buffer = match buffer_source {
         Some(ref buffer) if buffer.size() >= size as u64 => buffer,
         _ => {
-            // eprintln!("ALLOC {}", size);
-
             let atoms_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                mapped_at_creation: false /* match info {
-                    BufferInfo::Data(_) => true,
-                    BufferInfo::Size(_) => false,
-                } */,
+                mapped_at_creation: false,
                 size: (((size as f32) * 1.2 / 4.0).ceil() as u64) * 4,
                 usage,
             });
@@ -117,6 +110,7 @@ impl Engine {
         })
     }
 
+    /// Calculate the circular variance of protein residues.
     pub async fn run<R: RangeBounds<usize>>(
         &mut self,
         residue_atom_counts: &[u32],

@@ -1,7 +1,10 @@
 [package]
 name = "molcv"
-version = "0.1.0"
+version = "0.0.0"
+description = "Crate that calculates the circular variance of protein residues"
 edition = "2021"
+license = "EUPL-1.2"
+repository = "https://github.com/slietar/molcv"
 
 [dependencies]
 bytemuck = "1.15.0"
@@ -11,7 +14,6 @@ ndarray = "0.15.6"
 ndarray-npy = "0.8.1"
 pdbtbx = "0.11.0"
 pollster = "0.3.0"
-# project-preprocessing = { path = "../structure" }
 serde = { version = "1.0.196", features = ["std", "derive"] }
 serde-pickle = "1.1.1"
 wgpu = "0.19.3"

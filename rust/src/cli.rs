@@ -86,7 +86,7 @@ async fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
 
     if let Some(pdb_output_path) = &args.pdb_output_path {
         if args.cutoff.len() != 1 {
-            return Err("Only one cutoff is supported when saving as a PDB file".into());
+            return Err("Exactly one cutoff is supported when saving as a PDB file".into());
         }
 
         let mut residue_index = 0;
